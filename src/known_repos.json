@@ -1,0 +1,30 @@
+{
+  "known_repos": [
+    { "full_name": "Pawdroid/Free-servers", "path": "sub", "type": "Base64" },
+    { "full_name": "Au1rxx/free-vpn-subscriptions", "path": "output/v2ray-base64.txt", "type": "Base64" },
+    { "full_name": "Au1rxx/free-vpn-subscriptions", "path": "output/clash.yaml", "type": "Clash" },
+    { "full_name": "Au1rxx/free-vpn-subscriptions", "path": "output/singbox.json", "type": "Singbox" },
+    { "full_name": "morpheusadam/v2ray-config", "path": "subs/all.txt", "type": "Base64" },
+    { "full_name": "morpheusadam/v2ray-config", "path": "subs/bundles/best.txt", "type": "Base64" },
+    { "full_name": "zhangdunlong/free-v2ray-nodes", "path": "nodes_base64.txt", "type": "Base64" },
+    { "full_name": "mfuu/v2ray", "path": "sub", "type": "Base64" },
+    { "full_name": "aiboboxx/v2rayfree", "path": "sub", "type": "Base64" },
+    { "full_name": "kooker/FreeSubsCheck", "path": "base64.txt", "type": "Base64" },
+    { "full_name": "kooker/FreeSubsCheck", "path": "all.yaml", "type": "Clash" },
+    { "full_name": "zhuhaiuk/free-nodes", "path": "nodes.txt", "type": "Base64" },
+    { "full_name": "xyfqzy/free-nodes", "path": "https://nodes.udptoos.com/subscriptions/base64.txt", "type": "Base64", "is_absolute_url": true },
+    { "full_name": "anaer/Sub", "path": "sub.txt", "type": "Base64" },
+    { "full_name": "miladtahanian/Config-Collector", "path": "mixed_iran.txt", "type": "Base64" },
+    { "full_name": "LalatinaHub/LatinaSub", "path": "result/sub", "type": "Base64" },
+    { "full_name": "LalatinaHub/LatinaSub", "path": "result/nodes", "type": "Base64" },
+    { "full_name": "LalatinaHub/LatinaSub", "path": "result/clash.yaml", "type": "Clash" },
+    { "full_name": "LalatinaHub/LatinaSub", "path": "result/singbox.json", "type": "Singbox" },
+    { "full_name": "idtheo/V2Ray-CleanIPs-Servers", "path": "shield.txt", "type": "Base64" },
+    { "full_name": "idtheo/V2Ray-CleanIPs-Servers", "path": "star.txt", "type": "Base64" },
+    { "full_name": "idtheo/V2Ray-CleanIPs-Servers", "path": "vip.txt", "type": "Base64" },
+    { "full_name": "Vanic24/VPN", "path": "MIX", "type": "Base64" },
+    { "full_name": "Vanic24/VPN", "path": "Sub3", "type": "Base64" },
+    { "full_name": "Vanic24/VPN", "path": "8EB", "type": "Base64" },
+    { "full_name": "Vanic24/VPN", "path": "9PB", "type": "Base64" }
+  ]
+}

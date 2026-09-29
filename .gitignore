@@ -1,0 +1,27 @@
+# 编译输出
+bin/
+obj/
+dist/
+
+# 用户数据
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# VS Code
+.vs/
+.vscode/
+
+# 临时文件
+*.log
+*.tmp
+
+# NuGet
+packages/
+*.nupkg
+
+# 备份
+*.zip
+backup_*
+*备份*
