@@ -6,6 +6,10 @@
 
 [English](README.en.md) | **中文**
 
+<p align="center">
+    <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
+</p>
+
 ![软件主界面](images/main.png)
 
 </div>
