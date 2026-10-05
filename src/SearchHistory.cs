@@ -62,10 +62,8 @@ public static class SearchHistory
         {
             try
             {
-                var dir = Path.GetDirectoryName(FilePath);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 var json = JsonSerializer.Serialize(_record, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(FilePath, json);
+                AtomicFile.Write(FilePath, json);
             }
             catch { }
         }

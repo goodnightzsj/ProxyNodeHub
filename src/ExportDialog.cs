@@ -48,7 +48,7 @@ public class ExportDialog : Form
             ScrollBars = ScrollBars.Vertical,
             Dock = DockStyle.Fill,
             BackColor = Theme.PaperDeep,
-            ForeColor = Color.FromArgb(92, 108, 74),
+            ForeColor = Theme.LogGreen,
             Font = Fonts.Mono85,
             BorderStyle = BorderStyle.None
         };

@@ -26,7 +26,7 @@ public static partial class SubscriptionFinder
     /// </summary>
     public static async Task<List<SubscriptionLink>> FindLinksAsync(
         GitHubService github, string fullName, CancellationToken ct = default,
-        Action<string>? log = null)
+        Action<string>? log = null, string branch = "main")
     {
         void Log(string msg) => log?.Invoke(msg);
 
@@ -47,14 +47,14 @@ public static partial class SubscriptionFinder
             Log($"│  [L1] 特征库命中 {feature.KnownSubPaths.Count} 个已知路径");
             foreach (var path in feature.KnownSubPaths)
             {
-                var content = await github.GetRawFileAsync(fullName, path, ct);
+                var content = await github.GetRawFileAsync(fullName, path, branch, ct);
                 if (string.IsNullOrEmpty(content) || content.Length < 50) continue;
                 var count = NodeParser.CountNodes(content);
                 if (count > 0)
                 {
                     links.Add(new SubscriptionLink
                     {
-                        Name = path, Url = BuildUrl(fullName, path),
+                        Name = path, Url = BuildUrl(fullName, path, branch),
                         Type = DetectType(path), NodeCount = count,
                         IsValid = true, IsAnalyzed = true
                     });
@@ -104,7 +104,7 @@ public static partial class SubscriptionFinder
 
         // ═══ Layer 3: 仓库分类 + 文件树探测 ═══
         var fileTree = await github.GetFileTreeAsync(fullName, ct);
-        var readme = await github.GetReadmeAsync(fullName, ct);
+        var readme = await github.GetReadmeAsync(fullName, branch, ct);
         var category = RepoClassifier.Classify(fileTree, readme);
 
         // 非节点仓库 → 返回空
@@ -130,13 +130,13 @@ public static partial class SubscriptionFinder
                     await l3Semaphore.WaitAsync(ct);
                     try
                     {
-                        var content = await github.GetRawFileAsync(fullName, path, ct);
+                        var content = await github.GetRawFileAsync(fullName, path, branch, ct);
                         if (string.IsNullOrEmpty(content) || content.Length < 50) return null;
                         var count = NodeParser.CountNodes(content);
                         if (count <= 0) return null;
                         return new SubscriptionLink
                         {
-                            Name = path, Url = BuildUrl(fullName, path),
+                            Name = path, Url = BuildUrl(fullName, path, branch),
                             Type = DetectType(path), NodeCount = count,
                             IsValid = true, IsAnalyzed = true
                         };
@@ -171,13 +171,13 @@ public static partial class SubscriptionFinder
                 await l4Semaphore.WaitAsync(ct);
                 try
                 {
-                    var content = await github.GetRawFileAsync(fullName, path, ct);
+                    var content = await github.GetRawFileAsync(fullName, path, branch, ct);
                     if (string.IsNullOrEmpty(content) || content.Length < 50) return null;
                     var count = NodeParser.CountNodes(content);
                     if (count <= 0) return null;
                     return new SubscriptionLink
                     {
-                        Name = path, Url = BuildUrl(fullName, path),
+                        Name = path, Url = BuildUrl(fullName, path, branch),
                         Type = DetectType(path), NodeCount = count,
                         IsValid = true, IsAnalyzed = true
                     };
@@ -226,7 +226,7 @@ public static partial class SubscriptionFinder
             {
                 links.Add(new SubscriptionLink
                 {
-                    Name = path, Url = BuildUrl(fullName, path),
+                    Name = path, Url = BuildUrl(fullName, path, branch),
                     Type = "Base64", NodeCount = -1,
                     IsValid = true, IsAnalyzed = false
                 });
@@ -295,8 +295,9 @@ public static partial class SubscriptionFinder
         return "Base64";
     }
 
-    private static string BuildUrl(string fullName, string path)
+    private static string BuildUrl(string fullName, string path, string branch)
     {
-        return $"https://raw.githubusercontent.com/{fullName}/main/{path}";
+        var b = string.IsNullOrEmpty(branch) ? "main" : branch;
+        return $"https://raw.githubusercontent.com/{fullName}/{b}/{path}";
     }
 }

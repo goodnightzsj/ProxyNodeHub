@@ -20,6 +20,7 @@ public static class Fonts
     public static readonly Font Mono8 = new(Mono, 8F);
     public static readonly Font Mono85 = new(Mono, 8.5F);
     public static readonly Font Mono9 = new(Mono, 9F);
+    public static readonly Font Mono95 = new(Mono, 9.5F);
     public static readonly Font Mono10 = new(Mono, 10F);
     public static readonly Font Ui9 = new(Ui, 9F);
     public static readonly Font Ui9Bold = new(UiBold, 9F);

@@ -16,17 +16,24 @@ public class MainForm : Form
 
     private TableLayoutPanel _root = null!;
     private Panel _content = null!, _inspectorHost = null!, _inspector = null!, _progressLine = null!;
+    private SpeedTestPanel _speedPanel = null!;
     private TextBox _txtToken = null!, _txtFilter = null!;
     private NumericUpDown _numRepos = null!, _numMinCommits = null!, _numActiveDays = null!, _numInactiveDays = null!, _numSaveDays = null!, _numLogSaveDays = null!;
     private ComboBox _cmbQueryMode = null!, _cmbProxy = null!;
     private ModernButton _btnTestProxy = null!;
-    private ModernButton _btnSearch = null!, _btnExport = null!, _btnCopyBest = null!, _btnInspector = null!, _btnFavorites = null!, _btnFeatureLib = null!;
+    private ModernButton _btnSearch = null!, _btnExport = null!, _btnInspector = null!, _btnFavorites = null!, _btnFeatureLib = null!, _btnSpeedTest = null!;
     private ModernButton _btnTabDetails = null!, _btnTabLog = null!, _btnEye = null!, _btnResetHistory = null!;
     private CheckBox _chkAutoClean = null!;
     private DataGridView _dgv = null!;
+    // 流式刷新节流：分析阶段每个仓库完成都触发 RefreshGrid，100 个仓库就是
+    // 100 次整表重建。这里把 120ms 内的多次刷新合并成一次。
+    private DateTime _lastRefresh = DateTime.MinValue;
+    private bool _refreshQueued = false;
     private Panel _emptyPanel = null!;
     private Label _emptyHead = null!, _emptySub = null!;
     private Panel _detailsPanel = null!, _logPanel = null!;
+    private SpeedResultPanel _speedResultPanel = null!;
+    private ModernButton _btnTabSpeed = null!;
     private TextBox _txtLog = null!;
     private ToolTip _tooltip = null!;
     private ContextMenuStrip _ctxMenu = null!;
@@ -53,6 +60,7 @@ public class MainForm : Form
     // 收藏
     private List<RepoInfo> _favorites = new();
     private string _viewMode = "search";
+    private bool _speedView;
     private bool IsFavoritesView => _viewMode == "favorites";
 
     private int _progressPct;
@@ -64,7 +72,7 @@ public class MainForm : Form
     private AppSettings _settings = new();
     private CancellationTokenSource? _cts;
     private bool _isRunning;
-    private string _sortField = "Score";
+    private string _sortField = "Usable";
     private bool _sortDesc = true;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -77,6 +85,9 @@ public class MainForm : Form
     {
         _settings = AppSettings.Load();
         _favorites = FavoritesStore.Load();
+        SpeedTestDefaults.Ensure();
+        SpeedTestDefaults.EnsureExampleStub();
+        SpeedTestStore.Load();
         BuildUi();
         ApplySettings();
         LoadCache();
@@ -200,6 +211,7 @@ public class MainForm : Form
         toolbar.Controls.Add(_btnEye);
 
         _btnSearch = new ModernButton { Text = "🔍 搜索并分析", BaseColor = Theme.Stamp, ForeColor = Theme.Paper, Size = new Size(110, 26), Margin = new Padding(0, 4, 6, 0) };
+        UiMetrics.FitWidth(_btnSearch);
         _btnSearch.Click += (s, e) => OnSearchClick();
         toolbar.Controls.Add(_btnSearch);
 
@@ -217,14 +229,18 @@ public class MainForm : Form
         toolbar.Controls.Add(_cmbQueryMode);
 
         _btnExport = new ModernButton { Text = "📋 订阅链接", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(96, 26), Margin = new Padding(0, 4, 6, 0), Enabled = false };
+        UiMetrics.FitWidth(_btnExport);
         _btnExport.Click += (s, e) => ShowExportDialog();
         toolbar.Controls.Add(_btnExport);
 
-        _btnCopyBest = new ModernButton { Text = "⚡ 复制最佳", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(94, 26), Margin = new Padding(0, 4, 6, 0), Enabled = false };
-        _btnCopyBest.Click += (s, e) => CopyBestLink();
-        toolbar.Controls.Add(_btnCopyBest);
+        // 特征库按钮（原「复制最佳」的位置）
+        _btnFeatureLib = new ModernButton { Text = "🗃 特征库", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(88, 26), Margin = new Padding(0, 4, 6, 0) };
+        UiMetrics.FitWidth(_btnFeatureLib);
+        _btnFeatureLib.Click += (s, e) => ShowFeatureLibraryDialog();
+        toolbar.Controls.Add(_btnFeatureLib);
 
         _btnFavorites = new ModernButton { Text = "★ 收藏", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(72, 26), Margin = new Padding(0, 4, 6, 0) };
+        UiMetrics.FitWidth(_btnFavorites);
         _btnFavorites.Click += (s, e) => ToggleViewMode();
         toolbar.Controls.Add(_btnFavorites);
 
@@ -241,7 +257,17 @@ public class MainForm : Form
         toolbar.Controls.Add(filterField);
 
         // 筛选行: 两个明确的 FlowLayoutPanel 行 (Dock=Top, 固定高度)
-        var filterRow1 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 34, BackColor = Color.Transparent, WrapContents = false, AutoScroll = true };
+        //
+        // 不用 AutoScroll：FlowLayoutPanel 的 AutoScroll 同时拉横竖两个条，
+        // 窄窗口下主界面底部会多一条横滚动条。改为允许折行 —— 宽度不足时
+        // 次要控件自动换到第二行，容器高度随之长高，不产生滚动条。
+        var filterRow1 = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top, AutoSize = true, BackColor = Color.Transparent,
+            WrapContents = true, AutoScroll = false,
+            Padding = new Padding(4, 2, 4, 2),
+            Margin = new Padding(0, 2, 0, 0),
+        };
         filterRow1.Controls.Add(MakeLabel("仓库数"));
         _numRepos = MakeNum(38, 10, 100, 30);
         filterRow1.Controls.Add(_numRepos);
@@ -268,6 +294,7 @@ public class MainForm : Form
 
         // 重置按钮
         _btnResetHistory = new ModernButton { Text = "重置天数", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(72, 26), CornerRadius = 2, Margin = new Padding(4, 4, 6, 0), Font = Fonts.Ui9 };
+        UiMetrics.FitWidth(_btnResetHistory);
         _btnResetHistory.Click += (s, e) =>
         {
             SearchHistory.Clear();
@@ -299,13 +326,15 @@ public class MainForm : Form
         _btnTestProxy.Click += async (s, e) => await TestProxiesAsync();
         filterRow1.Controls.Add(_btnTestProxy);
 
-        // 特征库按钮 (第二行, 详情日志左侧)
-        _btnFeatureLib = new ModernButton { Text = "🗃 特征库", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(88, 26), CornerRadius = 2, Margin = new Padding(6, 4, 6, 0) };
-        _btnFeatureLib.Click += (s, e) => ShowFeatureLibraryDialog();
-        filterRow1.Controls.Add(_btnFeatureLib);
+        // 节点测速按钮 (详情日志左侧)
+        _btnSpeedTest = new ModernButton { Text = "⚡ 节点测速", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(100, 26), CornerRadius = 2, Margin = new Padding(6, 4, 6, 0) };
+        UiMetrics.FitWidth(_btnSpeedTest);
+        _btnSpeedTest.Click += (s, e) => ToggleSpeedTest();
+        filterRow1.Controls.Add(_btnSpeedTest);
 
         // 详情日志按钮 (第二行结尾)
         _btnInspector = new ModernButton { Text = "▤ 详情日志", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(94, 26), CornerRadius = 2, Margin = new Padding(0, 4, 0, 0) };
+        UiMetrics.FitWidth(_btnInspector);
         _btnInspector.Click += (s, e) => ToggleInspector();
         filterRow1.Controls.Add(_btnInspector);
 
@@ -365,6 +394,19 @@ public class MainForm : Form
         BuildContextMenu();
         _content.Controls.Add(_dgv);
 
+        // 节点测速页 (与表格共用 _content，按视图切换可见性)
+        _speedPanel = new SpeedTestPanel { Dock = DockStyle.Fill, Visible = false };
+        _speedPanel.GetSubSources = () => CollectSubSources();
+        // 内核下载/查询复用主窗体的最快镜像，避免各走各的
+        _speedPanel.KernelProxy = url =>
+        {
+            var p = _github.CurrentProxy;
+            return p == null ? url : p.Prefix + url;
+        };
+        _speedPanel.OnRoundApplied += _ => OnSpeedRoundApplied();
+        WireSpeedPanel();
+        _content.Controls.Add(_speedPanel);
+
         // 空状态
         _emptyPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
         var emptyStack = new FlowLayoutPanel
@@ -417,14 +459,21 @@ public class MainForm : Form
         var tabHeader = new Panel { Dock = DockStyle.Top, Height = 38, BackColor = Theme.PaperHi, Padding = new Padding(12, 4, 12, 0) };
         var tabFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = false };
         _btnTabDetails = new ModernButton { Text = "详情", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(72, 26), CornerRadius = 0, Margin = new Padding(0, 2, 6, 0) };
+        UiMetrics.FitWidth(_btnTabDetails);
         _btnTabLog = new ModernButton { Text = "日志", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(72, 26), CornerRadius = 0, Margin = new Padding(0, 2, 6, 0) };
+        UiMetrics.FitWidth(_btnTabLog);
         _btnTabDetails.Click += (s, e) => SetInspectorTab("details");
         _btnTabLog.Click += (s, e) => SetInspectorTab("log");
+        _btnTabSpeed = new ModernButton { Text = "测速", Ghost = true, BackColor = Theme.PaperHi, Size = new Size(72, 26), CornerRadius = 0, Margin = new Padding(0, 2, 0, 0), Visible = false };
+        UiMetrics.FitWidth(_btnTabSpeed);
+        _btnTabSpeed.Click += (s, e) => SetInspectorTab("speed");
         tabFlow.Controls.Add(_btnTabDetails);
         tabFlow.Controls.Add(_btnTabLog);
+        tabFlow.Controls.Add(_btnTabSpeed);
         tabHeader.Controls.Add(tabFlow);
-        StyleTab(_btnTabDetails, true);
-        StyleTab(_btnTabLog, false);
+        Common.StyleTab(_btnTabDetails, true);
+        Common.StyleTab(_btnTabLog, false);
+        Common.StyleTab(_btnTabSpeed, false);
 
         _detailsPanel = new Panel
         {
@@ -477,7 +526,7 @@ public class MainForm : Form
             Dock = DockStyle.Fill, Multiline = true, ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
             BackColor = Theme.PaperDeep,
-            ForeColor = Color.FromArgb(92, 108, 74),
+            ForeColor = Theme.LogGreen,
             Font = Fonts.Mono85,
             BorderStyle = BorderStyle.None
         };
@@ -485,8 +534,10 @@ public class MainForm : Form
         _logPanel.Controls.Add(_txtLog);
         _logPanel.Controls.Add(logToolbar);
 
+        _speedResultPanel = new SpeedResultPanel { Dock = DockStyle.Fill, Visible = false };
         _inspector.Controls.Add(_detailsPanel);
         _inspector.Controls.Add(_logPanel);
+        _inspector.Controls.Add(_speedResultPanel);
         _inspector.Controls.Add(tabHeader);
         _inspectorHost.Controls.Add(_inspector);
         _content.Controls.Add(_inspectorHost);
@@ -504,7 +555,7 @@ public class MainForm : Form
         else
         {
             _emptyHead.Text = "NO DATA — 卷宗为空";
-            _emptySub.Text = "\n① 粘贴 GitHub Token（可选，提速约 10 倍）\n② 点击「🔍 搜索并分析」(F5)\n③ ⚡ 复制最佳 或 打开详情面板挑选链接\n\n低星 · 高频更新 · 自动维护的仓库排在前面";
+            _emptySub.Text = "\n① 粘贴 GitHub Token（可选，提速约 10 倍）\n② 点击「🔍 搜索并分析」(F5)\n③ 打开详情面板挑选链接\n\n低星 · 高频更新 · 自动维护的仓库排在前面";
         }
     }
 
@@ -791,12 +842,143 @@ public class MainForm : Form
         _viewMode = IsFavoritesView ? "search" : "favorites";
         _btnFavorites.Text = IsFavoritesView ? "❌ 关闭收藏" : "★ 收藏";
         _tooltip.SetToolTip(_btnFavorites, IsFavoritesView ? "返回搜索结果 (Ctrl+D)" : "查看收藏夹 (Ctrl+D)\n右键仓库 → ★ 加入收藏\n收藏的仓库不再被搜索收录");
-        StyleTab(_btnFavorites, IsFavoritesView);
+        Common.StyleTab(_btnFavorites, IsFavoritesView);
         UpdateEmptyText();
         ApplyFilters();
         ShowToast(IsFavoritesView
             ? $"收藏夹 · {_favorites.Count} 个仓库"
             : $"搜索结果 · {_filteredRepos.Count} 个仓库");
+    }
+
+    // ── 节点测速视图切换 ──
+    private void ToggleSpeedTest()
+    {
+        _speedView = !_speedView;
+
+        if (_speedView)
+        {
+            // 退出其他视图态，避免收藏/测速同时生效
+            if (IsFavoritesView)
+            {
+                _viewMode = "search";
+                _btnFavorites.Text = "★ 收藏";
+                Common.StyleTab(_btnFavorites, false);
+                _tooltip.SetToolTip(_btnFavorites, "查看收藏夹 (Ctrl+D)\n右键仓库 → ★ 加入收藏\n收藏的仓库不再被搜索收录");
+            }
+            _dgv.Visible = false;
+            _emptyPanel.Visible = false;
+            _speedPanel.Visible = true;
+            _speedPanel.BringToFront();
+            Common.StyleTab(_btnSpeedTest, true);
+
+            // 结果与日志都在右侧详情面板，进测速视图就把它展开并对到「测速」页
+            _btnTabSpeed.Visible = true;
+            if (!_inspectorOpen) ToggleInspector();
+            SetInspectorTab("speed");
+            _speedResultPanel.SetNodes(_speedPanel.Nodes);
+            _speedResultPanel.Backfill(_speedPanel.LogTailText);
+
+            ShowToast("节点测速 · 选择订阅来源后开始");
+        }
+        else
+        {
+            _speedPanel.Visible = false;
+            _dgv.Visible = true;
+            Common.StyleTab(_btnSpeedTest, false);
+            _btnTabSpeed.Visible = false;
+            if (_inspectorTab == "speed") SetInspectorTab("details");
+            UpdateEmptyText();
+            ApplyFilters();
+        }
+    }
+
+    // ── 测速页事件：结果与日志统一送到右侧详情面板 ──
+    private void WireSpeedPanel()
+    {
+        _speedPanel.OnNodesChanged += () =>
+        {
+            try
+            {
+                if (IsDisposed) return;
+                BeginInvoke(() => _speedResultPanel.SetNodes(_speedPanel.Nodes));
+            }
+            catch { }
+        };
+
+        _speedPanel.OnLogLine += (line, color) =>
+        {
+            try
+            {
+                if (IsDisposed) return;
+                BeginInvoke(() => _speedResultPanel.AppendLog(line, color));
+            }
+            catch { }
+        };
+    }
+
+
+    /// <summary>测速页的「搜索结果」来源：当前表格里所有已验证的订阅链接。</summary>
+    private List<SubSource> CollectSubSources()
+    {
+        var list = new List<SubSource>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in _filteredRepos.Count > 0 ? _filteredRepos : _allRepos)
+        {
+            foreach (var l in r.Links)
+            {
+                if (!l.IsValid || string.IsNullOrEmpty(l.Url)) continue;
+                if (!seen.Add(l.Url)) continue;
+                list.Add(new SubSource { Url = l.Url, Repo = r.FullName });
+            }
+        }
+        return list;
+    }
+
+    /// <summary>收藏来源。</summary>
+    private List<SubSource> CollectFavoriteSubSources()
+    {
+        var list = new List<SubSource>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in _favorites)
+        {
+            foreach (var l in r.Links)
+            {
+                if (!l.IsValid || string.IsNullOrEmpty(l.Url)) continue;
+                if (!seen.Add(l.Url)) continue;
+                list.Add(new SubSource { Url = l.Url, Repo = r.FullName });
+            }
+        }
+        return list;
+    }
+
+    /// <summary>把来源列表摊平成带备注的 URL —— 备注让内核把来源写进节点名，
+    /// 测速结果才能映射回仓库。</summary>
+    /// <summary>测速页完成一轮后回调：刷新排序与表格，提示降权情况。</summary>
+    private void OnSpeedRoundApplied()
+    {
+        try
+        {
+            BeginInvoke(() =>
+            {
+                ApplyFilters();
+                var demoted = SpeedTestStore.All.Count(s => s.Demoted);
+                if (demoted > 0)
+                    ShowToast($"已更新可用分 · {demoted} 个仓库连续 {SpeedTestStore.DemoteAfterRounds} 轮零通过已降权");
+                else
+                    ShowToast("已更新可用分，按「可用分」排序查看");
+            });
+        }
+        catch { }
+    }
+
+    /// <summary>解除选中仓库的降权。</summary>
+    private void UndemoteSelected()
+    {
+        var sel = _dgv.CurrentRow?.Cells["Repo"]?.Value?.ToString();
+        if (string.IsNullOrEmpty(sel)) return;
+        SpeedTestStore.Undemote(sel);
+        ApplyFilters();
+        ShowToast($"{sel} 已解除降权");
     }
 
     // ── 检查器开合 (无动画, 直接显示/隐藏) ──
@@ -826,23 +1008,66 @@ public class MainForm : Form
     private void SetInspectorTab(string which)
     {
         _inspectorTab = which;
-        bool isDetails = which == "details";
-        _detailsPanel.Visible = isDetails;
-        _logPanel.Visible = !isDetails;
-        StyleTab(_btnTabDetails, isDetails);
-        StyleTab(_btnTabLog, !isDetails);
-        if (isDetails) UpdateDetails();
+        _detailsPanel.Visible = which == "details";
+        _logPanel.Visible = which == "log";
+        _speedResultPanel.Visible = which == "speed";
+        Common.StyleTab(_btnTabDetails, which == "details");
+        Common.StyleTab(_btnTabLog, which == "log");
+        Common.StyleTab(_btnTabSpeed, which == "speed");
+        if (which == "details") UpdateDetails();
     }
 
-    private static void StyleTab(ModernButton btn, bool selected)
+    /// <summary>
+    /// 自动检查并安装内核新版本。仅在用户开启了「自动更新并安装」时触发，
+    /// 全程后台静默进行 —— 失败不影响任何现有功能。
+    /// </summary>
+    private async Task CheckKernelUpdateAsync()
     {
-        btn.Ghost = !selected;
-        if (selected)
+        try
         {
-            btn.BaseColor = Theme.Stamp;
-            btn.ForeColor = Theme.Paper;
+            var settings = AppSettings.Load();
+            if (!settings.KernelAutoUpdate) return;
+
+            var local = SubCheckKernel.LocalVersion();
+            var rel = await SubCheckKernel.FetchLatestAsync(
+                url => _github.CurrentProxy?.Prefix + url ?? url);
+
+            if (rel == null) return;                       // 网络不通，静默跳过
+            if (!SubCheckKernel.IsNewer(rel.Version, local)) return;
+
+            BeginInvoke(() =>
+            {
+                try
+                {
+                    ShowToast($"发现新内核 {rel.Version}，正在后台更新…");
+                    Log($"内核自动更新: {local ?? "未安装"} → {rel.Version}");
+                }
+                catch { }
+            });
+
+            var ok = await SubCheckKernel.InstallAsync(rel,
+                p => { }, CancellationToken.None,
+                url => _github.CurrentProxy?.Prefix + url ?? url);
+
+            BeginInvoke(() =>
+            {
+                try
+                {
+                    if (ok)
+                    {
+                        SubCheckKernel.RemoveBackup();
+                        ShowToast($"内核已更新至 {rel.Version}");
+                        Log($"内核 {rel.Version} 安装完成（SHA256 已校验）");
+                    }
+                    else
+                    {
+                        Log("内核自动更新失败，可手动从「⚙ 内核状态」更新");
+                    }
+                }
+                catch { }
+            });
         }
-        btn.Invalidate();
+        catch { /* 自动更新绝不影响主流程 */ }
     }
 
     private async void OnLoad(object? sender, EventArgs e)
@@ -855,6 +1080,12 @@ public class MainForm : Form
             await Task.Delay(14);
         }
         Opacity = 1;
+
+        // 界面就绪后再查内核，避免拖慢首屏
+        _ = Task.Delay(1500).ContinueWith(_ =>
+        {
+            try { BeginInvoke(new Action(() => _ = CheckKernelUpdateAsync())); } catch { }
+        }, TaskScheduler.Default);
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
@@ -934,10 +1165,12 @@ public class MainForm : Form
         _dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Score", HeaderText = "活跃度", FillWeight = 8 });
         _dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Nodes", HeaderText = "节点", FillWeight = 7 });
         _dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Links", HeaderText = "链接", FillWeight = 8 });
+        _dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Usable", HeaderText = "可用分", FillWeight = 8 });
+        _dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "AvgSpeed", HeaderText = "均速", FillWeight = 9 });
 
         _dgv.Columns["Repo"]!.DefaultCellStyle.Font = Fonts.Mono9;
         _dgv.Columns["LastPush"]!.DefaultCellStyle.Font = Fonts.Mono9;
-        foreach (var col in new[] { "Stars", "Commits", "Age", "Score", "Nodes", "Links" })
+        foreach (var col in new[] { "Stars", "Commits", "Age", "Score", "Nodes", "Links", "Usable", "AvgSpeed" })
             _dgv.Columns[col]!.DefaultCellStyle.Font = Fonts.Mono9;
     }
 
@@ -975,15 +1208,6 @@ public class MainForm : Form
             "· Base64 (V2RayN/v2rayNG/Shadowrocket)\n" +
             "· Clash YAML\n" +
             "· Sing-box JSON");
-
-        _tooltip.SetToolTip(_btnCopyBest,
-            "一键复制最佳订阅链接\n\n" +
-            "功能说明:\n" +
-            "· 自动选择活跃度最高的仓库\n" +
-            "· 优先选择已验证有节点的链接\n" +
-            "· 复制到剪贴板直接使用\n\n" +
-            "快捷键: Ctrl+C\n\n" +
-            "提示: 需先完成搜索并分析");
 
         _tooltip.SetToolTip(_btnFavorites,
             "切换收藏夹视图\n\n" +
@@ -1098,6 +1322,15 @@ public class MainForm : Form
             "· 复制文档给 AI 生成规则\n\n" +
             "特征码用于识别仓库中的订阅文件");
 
+        _tooltip.SetToolTip(_btnSpeedTest,
+            "节点测速\n\n" +
+            "功能说明:\n" +
+            "· 对收藏/搜索到的订阅链接做真实穿透测速\n" +
+            "· 存活检测 + 下载测速 + 流媒体解锁 + IP 风险\n" +
+            "· 按回数保留历史节点，下轮自动并入\n" +
+            "· 结果可直接导出为可用订阅\n\n" +
+            "依赖 subs-check 内核，可从本页下载安装");
+
         _tooltip.SetToolTip(_btnInspector,
             "展开 / 收起右侧详情面板\n\n" +
             "功能说明:\n" +
@@ -1124,7 +1357,7 @@ public class MainForm : Form
             "· 右键 = 操作菜单\n" +
             "· 点击列头 = 排序\n\n" +
             "键盘操作:\n" +
-            "· Ctrl+C = 复制最佳链接\n" +
+            "· Ctrl+C = 复制选中订阅链接\n" +
             "· Ctrl+L = 切换详情面板\n" +
             "· Ctrl+D = 切换收藏夹\n" +
             "· Ctrl+F = 聚焦筛选框");
@@ -1143,6 +1376,7 @@ public class MainForm : Form
         _ctxMenu.Items.Add(new ToolStripMenuItem("复制订阅链接") { Tag = "link" });
         _ctxMenu.Items.Add(new ToolStripMenuItem("★ 加入收藏") { Tag = "fav" });
         _ctxMenu.Items.Add(new ToolStripMenuItem("复制仓库名") { Tag = "name" });
+        _ctxMenu.Items.Add(new ToolStripMenuItem("解除测速降权") { Tag = "undemote" });
         _ctxMenu.Items.Add(new ToolStripSeparator());
         _ctxMenu.Items.Add(new ToolStripMenuItem("重新检查选中的仓库") { Tag = "recheck" });
         _ctxMenu.Opening += (s, e) =>
@@ -1153,6 +1387,27 @@ public class MainForm : Form
             var nameItem = _ctxMenu.Items.OfType<ToolStripMenuItem>().FirstOrDefault(i => i.Tag as string == "name");
             if (linkItem != null) linkItem.Text = selectedCount > 1 ? $"复制选中的 {selectedCount} 个订阅链接" : "复制订阅链接";
             if (nameItem != null) nameItem.Text = selectedCount > 1 ? $"复制选中的 {selectedCount} 个仓库名" : "复制仓库名";
+
+            // 收藏视图下，「加入收藏」变成「删除」，且支持多选删除
+            var favItem = _ctxMenu.Items.OfType<ToolStripMenuItem>().FirstOrDefault(i => i.Tag as string == "fav");
+            if (favItem != null)
+            {
+                if (IsFavoritesView)
+                    favItem.Text = selectedCount > 1 ? $"删除选中的 {selectedCount} 个收藏" : "从收藏夹删除";
+                else
+                    favItem.Text = selectedCount > 1 ? $"加入收藏 ({selectedCount} 个)" : "★ 加入收藏";
+            }
+
+            // 「解除降权」仅在有仓库真被降权时可点，否则是死菜单项
+            var undemote = _ctxMenu.Items.OfType<ToolStripMenuItem>().FirstOrDefault(i => i.Tag as string == "undemote");
+            if (undemote != null)
+            {
+                var any = _dgv.SelectedRows
+                    .Cast<DataGridViewRow>()
+                    .Any(r => SpeedTestStore.Get(r.Cells["Repo"]?.Value?.ToString() ?? "")?.Demoted == true);
+                undemote.Enabled = any;
+                undemote.Text = selectedCount > 1 ? "解除选中仓库的降权" : "解除测速降权";
+            }
         };
         _ctxMenu.ItemClicked += CtxMenu_ItemClicked;
     }
@@ -1168,10 +1423,14 @@ public class MainForm : Form
                 CopySelectedSubLinks();
                 break;
             case "fav":
-                ToggleSelectedFavorites();
+                if (IsFavoritesView) RemoveSelectedFromFavorites();
+                else ToggleSelectedFavorites();
                 break;
             case "name":
                 CopySelectedRepoNames();
+                break;
+            case "undemote":
+                UndemoteSelected();
                 break;
             case "recheck":
                 await RecheckSelectedRepos();
@@ -1232,10 +1491,11 @@ public class MainForm : Form
         _numInactiveDays.Value = Clamp(_settings.InactiveDays, 3, 30);
         _chkAutoClean.Checked = _settings.AutoClean;
 
-        var token = _settings.GetToken();
-        if (string.IsNullOrEmpty(token))
-            token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
-        _txtToken.Text = token;
+        // key 只来自 exe 同目录的 settings.json。不做环境变量 GITHUB_TOKEN 回退：
+        // 否则有该环境变量的机器上"初次打开"key 就不是空的了，而且关闭时会
+        // 把环境变量里的真实 token 明文写进 settings.json —— 用户不知情且违背
+        // "初次打开应为空"的要求。
+        _txtToken.Text = _settings.GetToken();
 
         if (_settings.WindowW >= MinimumSize.Width && _settings.WindowH >= MinimumSize.Height)
         {
@@ -1308,7 +1568,6 @@ public class MainForm : Form
                 _inspectorHost.Visible = false;
             }
             _btnExport.Enabled = true;
-            _btnCopyBest.Enabled = true;
         }
     }
 
@@ -1359,7 +1618,7 @@ public class MainForm : Form
                 e.FormattingApplied = true;
                 break;
             case "Score":
-                e.CellStyle!.ForeColor = repo.Score >= 75 ? Theme.Stamp : repo.Score >= 45 ? Theme.Ochre : Theme.InkLow;
+                e.CellStyle!.ForeColor = ScoreColor(repo.Score);
                 break;
             case "Processing":
                 if (repo.ProcessingType == "待分析")
@@ -1399,7 +1658,7 @@ public class MainForm : Form
             using (var bg = new SolidBrush(bgColor))
                 g!.FillRectangle(bg, b);
 
-            var scoreColor = repo.Score >= 75 ? Theme.Stamp : repo.Score >= 45 ? Theme.Ochre : Theme.InkLow;
+            var scoreColor = ScoreColor(repo.Score);
 
             var textRect = new Rectangle(b.X, b.Y, b.Width, b.Height - 7);
             TextRenderer.DrawText(g, repo.Score.ToString(), Fonts.Mono9, textRect, scoreColor,
@@ -1527,6 +1786,23 @@ public class MainForm : Form
         ApplyFilters();
     }
 
+    /// <summary>
+    /// 收藏视图下的右键「删除」：只从收藏夹移除，不做「加入收藏」的切换。
+    /// 支持多选一次删多个。
+    /// </summary>
+    private void RemoveSelectedFromFavorites()
+    {
+        var repos = GetSelectedRepos();
+        if (repos.Count == 0) { ShowToast("请先选中仓库"); return; }
+        var names = new HashSet<string>(repos.Select(r => r.FullName), StringComparer.OrdinalIgnoreCase);
+        int before = _favorites.Count;
+        _favorites.RemoveAll(f => names.Contains(f.FullName));
+        int removed = before - _favorites.Count;
+        FavoritesStore.Save(_favorites);
+        ShowToast($"已删除 {removed} 个收藏");
+        ApplyFilters();
+    }
+
     private async Task RecheckSelectedRepos()
     {
         var repos = GetSelectedRepos();
@@ -1576,68 +1852,6 @@ public class MainForm : Form
         try { Clipboard.SetText(_contextRepo.FullName); ShowToast("已复制仓库名"); } catch { }
     }
 
-    private void CopyBestLink()
-    {
-        // 诊断: 检查是否有仓库数据
-        if (_filteredRepos.Count == 0)
-        {
-            ShowToast("没有仓库数据, 请先搜索并分析");
-            return;
-        }
-
-        // 诊断: 检查是否有任何链接
-        var reposWithLinks = _filteredRepos.Where(r => r.Links.Count > 0).ToList();
-        if (reposWithLinks.Count == 0)
-        {
-            ShowToast($"共 {_filteredRepos.Count} 个仓库, 但未探测到任何订阅链接");
-            Log($"[诊断] 共 {_filteredRepos.Count} 个仓库, Links 均为空, 探测可能失败");
-            return;
-        }
-
-        // 查找最佳有效链接
-        var validLinks = reposWithLinks
-            .SelectMany(r => r.Links.Select(l => (r, l)))
-            .Where(x => x.l.IsValid && x.l.NodeCount > 0)
-            .OrderByDescending(x => x.r.Score)
-            .ThenByDescending(x => x.l.NodeCount)
-            .ToList();
-
-        if (validLinks.Count == 0)
-        {
-            // 没有有效节点, 尝试找任何有效链接
-            var anyValid = reposWithLinks
-                .SelectMany(r => r.Links.Select(l => (r, l)))
-                .Where(x => x.l.IsValid)
-                .OrderByDescending(x => x.r.Score)
-                .FirstOrDefault();
-
-            if (anyValid != default)
-            {
-                try
-                {
-                    Clipboard.SetText(anyValid.l.Url);
-                    Log($"已复制最佳链接(未验证节点): {anyValid.r.FullName} → {anyValid.l.Url}");
-                    ShowToast($"已复制 {anyValid.r.FullName} (活跃度 {anyValid.r.Score})\n注意: 链接未验证到节点");
-                }
-                catch (Exception ex) { Log($"复制失败: {ex.Message}"); }
-            }
-            else
-            {
-                ShowToast($"共 {reposWithLinks.Count} 个仓库有链接, 但均未验证有效");
-            }
-            return;
-        }
-
-        var best = validLinks.First();
-        try
-        {
-            Clipboard.SetText(best.l.Url);
-            Log($"已复制最佳链接: {best.r.FullName} → {best.l.Url} ({best.l.NodeCount} 节点)");
-            ShowToast($"已复制 {best.r.FullName} (活跃度 {best.r.Score}, {best.l.NodeCount} 节点)");
-        }
-        catch (Exception ex) { Log($"复制失败: {ex.Message}"); }
-    }
-
     private async Task RecheckRepo()
     {
         if (_contextRepo == null || _isRunning) return;
@@ -1645,11 +1859,11 @@ public class MainForm : Form
         Log($"重新检查: {repo.FullName}");
         var commits = await _github.GetRecentCommitsAsync(repo.FullName, 7);
         repo.CommitsLast7Days = commits.Count;
-        repo.DistinctActiveDays = CountDistinctDays(commits);
-        repo.ProcessingType = DetectProcessingType(commits);
-        repo.Links = await SubscriptionFinder.FindLinksAsync(_github, repo.FullName, default, msg => Log(msg));
-        repo.TotalNodes = BestNodeCount(repo);
-        repo.Score = CalculateScore(repo);
+        repo.DistinctActiveDays = GitHubAnalyzer.CountDistinctDays(commits);
+        repo.ProcessingType = GitHubAnalyzer.DetectProcessingType(commits);
+        repo.Links = await SubscriptionFinder.FindLinksAsync(_github, repo.FullName, default, msg => Log(msg), repo.Branch);
+        repo.TotalNodes = GitHubAnalyzer.BestNodeCount(repo);
+        repo.Score = GitHubAnalyzer.CalculateScore(repo);
         ApplyFilters();
         UpdateDetails();
     }
@@ -1783,7 +1997,7 @@ public class MainForm : Form
             added.Add(new Label
             {
                 Text = repo.Description,
-                ForeColor = Color.FromArgb(98, 92, 82),
+                ForeColor = Theme.DescGray,
                 AutoSize = true, MaximumSize = new Size(268, 0),
                 Dock = DockStyle.Top, Padding = new Padding(4, 4, 0, 10),
                 Font = Fonts.Ui9, BackColor = Theme.PaperHi
@@ -1836,7 +2050,6 @@ public class MainForm : Form
         _btnSearch.BaseColor = Theme.StampDeep;
         _btnSearch.Invalidate();
         _btnExport.Enabled = false;
-        _btnCopyBest.Enabled = false;
         _progressPct = 1;
         _progressLine.Invalidate();
 
@@ -1844,7 +2057,7 @@ public class MainForm : Form
         if (IsFavoritesView)
         {
             _viewMode = "search";
-            StyleTab(_btnFavorites, false);
+            Common.StyleTab(_btnFavorites, false);
             UpdateEmptyText();
         }
 
@@ -1923,28 +2136,10 @@ public class MainForm : Form
                         if (_favorites.Any(f => f.FullName == r.FullName)) continue;
                         if (SearchHistory.IsExcluded(r.FullName)) continue;
 
-                        // 预过滤: 超过 60 天未更新
-                        var style = System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal;
-                        if (DateTime.TryParse(r.PushedAt, null, style, out var pushed))
-                        {
-                            var daysInactive = Math.Max(0, (DateTime.UtcNow - pushed).Days);
-                            if (daysInactive > 60) continue;
-                        }
+                        if (GitHubAnalyzer.IsStale(r)) continue;
 
                         seen.Add(r.FullName);
-                        var info = new RepoInfo
-                        {
-                            FullName = r.FullName,
-                            Description = r.Description,
-                            Stars = r.Stars,
-                            LastPush = r.PushedAt,
-                            CreatedAt = r.CreatedAt
-                        };
-                        if (DateTime.TryParse(r.PushedAt, null, style, out var pushedAt))
-                            info.DaysInactive = Math.Max(0, (DateTime.UtcNow - pushedAt).Days);
-                        if (DateTime.TryParse(r.CreatedAt, null, style, out var created))
-                            info.AgeDays = Math.Max(0, (DateTime.UtcNow - created).Days);
-                        found.Add(info);
+                        found.Add(GitHubAnalyzer.ToRepoInfo(r));
                     }
                     ApplyFilters();
                 }
@@ -1968,29 +2163,12 @@ public class MainForm : Form
                         if (r.Fork) { skippedFork++; continue; }
                         if (_favorites.Any(f => f.FullName == r.FullName)) { skippedFav++; continue; }
 
-                        var style = System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal;
-                        if (DateTime.TryParse(r.PushedAt, null, style, out var pushed))
-                        {
-                            var daysInactive = Math.Max(0, (DateTime.UtcNow - pushed).Days);
-                            if (daysInactive > 60) { skippedOld++; continue; }
-                        }
+                        if (GitHubAnalyzer.IsStale(r)) { skippedOld++; continue; }
 
                         if (SearchHistory.IsExcluded(r.FullName)) continue;
 
                         seen.Add(r.FullName);
-                        var info = new RepoInfo
-                        {
-                            FullName = r.FullName,
-                            Description = r.Description,
-                            Stars = r.Stars,
-                            LastPush = r.PushedAt,
-                            CreatedAt = r.CreatedAt
-                        };
-                        if (DateTime.TryParse(r.PushedAt, null, style, out var pushedAt))
-                            info.DaysInactive = Math.Max(0, (DateTime.UtcNow - pushedAt).Days);
-                        if (DateTime.TryParse(r.CreatedAt, null, style, out var created))
-                            info.AgeDays = Math.Max(0, (DateTime.UtcNow - created).Days);
-                        found.Add(info);
+                        found.Add(GitHubAnalyzer.ToRepoInfo(r));
                         newCount++;
                     }
                     string hint = newCount == 0 ? " · 网络缓慢建议点击 📡 测速添加加速代理" : "";
@@ -2121,12 +2299,11 @@ public class MainForm : Form
             int excludedCount = SearchHistory.GetExcludedCount();
 
             _btnExport.Enabled = true;
-            _btnCopyBest.Enabled = true;
 
             if (!_inspectorOpen) ToggleInspector();
 
             string historyHint = excludedCount > 0 ? $" · 已排除 {excludedCount} 个" : "";
-            ShowToast($"完成 · {_filteredRepos.Count} 个仓库 · Ctrl+C 复制最佳链接{historyHint}");
+            ShowToast($"完成 · {_filteredRepos.Count} 个仓库 · Ctrl+C 复制选中链接{historyHint}");
             Log($"\n完成: {found.Count} 个仓库, {_filteredRepos.Count} 个通过筛选, 已缓存\n");
         }
         catch (OperationCanceledException)
@@ -2149,7 +2326,6 @@ public class MainForm : Form
             {
                 ApplyFilters();
                 _btnExport.Enabled = _filteredRepos.Count > 0;
-                _btnCopyBest.Enabled = _filteredRepos.Count > 0;
             }
         }
         catch (Exception ex)
@@ -2189,8 +2365,8 @@ public class MainForm : Form
                 Log($"│  获取提交历史...");
                 var commits = await _github.GetRecentCommitsAsync(repo.FullName, 7, ct);
                 repo.CommitsLast7Days = commits.Count;
-                repo.DistinctActiveDays = CountDistinctDays(commits);
-                repo.ProcessingType = DetectProcessingType(commits);
+                repo.DistinctActiveDays = GitHubAnalyzer.CountDistinctDays(commits);
+                repo.ProcessingType = GitHubAnalyzer.DetectProcessingType(commits);
                 repo.CommitsAnalyzed = true;
                 Log($"│  ✓ 提交: {commits.Count} 次 (活跃 {repo.DistinctActiveDays} 天) [{repo.ProcessingType}]");
                 break;
@@ -2223,8 +2399,8 @@ public class MainForm : Form
                     await Task.Delay(800 * attempt, ct);
                 }
                 Log($"│  探测订阅链接...");
-                repo.Links = await SubscriptionFinder.FindLinksAsync(_github, repo.FullName, ct, msg => Log(msg));
-                repo.TotalNodes = BestNodeCount(repo);
+                repo.Links = await SubscriptionFinder.FindLinksAsync(_github, repo.FullName, ct, msg => Log(msg), repo.Branch);
+                repo.TotalNodes = GitHubAnalyzer.BestNodeCount(repo);
 
                 if (repo.Links.Count > 0)
                 {
@@ -2262,103 +2438,13 @@ public class MainForm : Form
             }
         }
 
-        repo.Score = CalculateScore(repo);
+        repo.Score = GitHubAnalyzer.CalculateScore(repo);
         Log($"└─ 完成 [评分: {repo.Score}]");
     }
 
 
 
     /// <summary>节点数 = 已验证链接中的最大值 (排除待分析的)</summary>
-    private static int BestNodeCount(RepoInfo r)
-    {
-        var counts = r.Links.Where(l => l.IsAnalyzed && l.IsValid && l.NodeCount > 0).Select(l => l.NodeCount);
-        return counts.DefaultIfEmpty(0).Max();
-    }
-
-    private static string DetectProcessingType(List<GitHubCommit> commits)
-    {
-        if (commits.Count == 0) return "无提交";
-        bool hasBot = false, hasHuman = false;
-        foreach (var c in commits)
-        {
-            if (IsBotCommit(c)) hasBot = true; else hasHuman = true;
-        }
-        if (hasBot && hasHuman) return "自动+人工";
-        if (hasBot) return "自动处理";
-        return "人工处理";
-    }
-
-    private static bool IsBotCommit(GitHubCommit c)
-    {
-        var name = (c.Commit?.Author?.Name ?? "").ToLowerInvariant();
-        var login = (c.Author?.Login ?? "").ToLowerInvariant();
-        var msg = (c.Commit?.Message ?? "").ToLowerInvariant();
-        var botKeys = new[] { "github-actions", "[bot]", "actions-user", "dependabot", "renovate", "cron" };
-        if (botKeys.Any(k => name.Contains(k) || login.Contains(k))) return true;
-        if (name.Contains("action") || login.Contains("action")) return true;
-        if (msg.Contains("cron") || msg.Contains("github actions")) return true;
-        return false;
-    }
-
-    private static int CountDistinctDays(List<GitHubCommit> commits)
-    {
-        return commits
-            .Select(c => c.Commit?.Author?.Date)
-            .Where(d => !string.IsNullOrEmpty(d))
-            .Select(d => DateTime.TryParse(d, out var dt) ? dt.Date : (DateTime?)null)
-            .Where(d => d.HasValue)
-            .Select(d => d!.Value)
-            .Distinct()
-            .Count();
-    }
-
-    /// <summary>多因子活跃度 (0-100): 提交频率 35 + 均匀度 15 + 新鲜度 15 + 自动化 10 + 订阅验证 10 + 节点规模 10 + 隐蔽度 ±</summary>
-    private static int CalculateScore(RepoInfo r)
-    {
-        int score = 0;
-        // 提交频率 (0-35): 周提交 ≥9 次满分
-        score += Math.Min(r.CommitsLast7Days, 9) * 35 / 9;
-        // 更新均匀度 (0-15): 7 天里有多少天在更新
-        if (r.DistinctActiveDays >= 6) score += 15;
-        else if (r.DistinctActiveDays >= 4) score += 10;
-        else if (r.DistinctActiveDays >= 2) score += 5;
-        // 新鲜度 (0-15)
-        if (r.DaysInactive <= 0) score += 15;
-        else if (r.DaysInactive == 1) score += 10;
-        else if (r.DaysInactive == 2) score += 6;
-        else if (r.DaysInactive == 3) score += 3;
-        // 自动化 (0-10)
-        if (r.ProcessingType == "自动处理") score += 10;
-        else if (r.ProcessingType == "自动+人工") score += 6;
-        // 订阅验证 (0-10)
-        if (r.Links.Any(l => l.NodeCount > 0)) score += 10;
-        else if (r.Links.Count > 0) score += 4;
-        // 节点规模 (0-10)
-        if (r.TotalNodes >= 100) score += 10;
-        else if (r.TotalNodes >= 30) score += 6;
-        else if (r.TotalNodes >= 10) score += 3;
-        // 隐蔽度 (-10 ~ +5)
-        if (r.Stars < 50) score += 5;
-        else if (r.Stars < 200) score += 3;
-        else if (r.Stars > 8000) score -= 10;
-        else if (r.Stars > 2000) score -= 5;
-        return Math.Clamp(score, 0, 100);
-    }
-
-    private static string RelativeTime(string? iso)
-    {
-        if (string.IsNullOrEmpty(iso)) return "?";
-        if (DateTime.TryParse(iso, null, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var t))
-        {
-            var span = DateTime.UtcNow - t;
-            if (span.TotalMinutes < 1) return "刚刚";
-            if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}分钟前";
-            if (span.TotalHours < 24) return $"{(int)span.TotalHours}小时前";
-            if (span.TotalDays < 30) return $"{(int)span.TotalDays}天前";
-            return t.ToString("MM-dd");
-        }
-        return iso.Length > 10 ? iso[..10] : iso;
-    }
 
     // ══════════════════════ 筛选 / 排序 / 显示 ══════════════════════
 
@@ -2394,8 +2480,25 @@ public class MainForm : Form
         RefreshGrid();
     }
 
+    /// <summary>活跃度分值 → 颜色。统一映射，别在 CellFormatting 和自绘里各写一份。</summary>
+    private static Color ScoreColor(int score)
+        => score >= 75 ? Theme.Stamp : score >= 45 ? Theme.Ochre : Theme.InkLow;
+
     private List<RepoInfo> SortRepos(List<RepoInfo> list)
     {
+        // 「可用分/均速」的排序键来自 SpeedTestStore（字典查询）。若直接在比较器里
+        // 调用，O(n log n) 次排序会做 O(n log n) 次字典查询。先按仓库名预计算一次，
+        // 排序时只查内存字典。
+        Dictionary<string, int>? keyCache = null;
+        if (_sortField is "Usable" or "AvgSpeed")
+        {
+            keyCache = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in list)
+                keyCache[r.FullName] = _sortField == "Usable"
+                    ? SpeedTestStore.SortScore(r.FullName)
+                    : SpeedTestStore.SortAvgSpeed(r.FullName);
+        }
+
         Comparison<RepoInfo> cmp = _sortField switch
         {
             "Repo" => (a, b) => string.Compare(a.FullName, b.FullName, StringComparison.Ordinal),
@@ -2407,6 +2510,8 @@ public class MainForm : Form
             "Processing" => (a, b) => string.Compare(a.ProcessingType, b.ProcessingType, StringComparison.Ordinal),
             "Nodes" => (a, b) => a.TotalNodes.CompareTo(b.TotalNodes),
             "Links" => (a, b) => a.Links.Count.CompareTo(b.Links.Count),
+            "Usable" => (a, b) => keyCache![a.FullName].CompareTo(keyCache![b.FullName]),
+            "AvgSpeed" => (a, b) => keyCache![a.FullName].CompareTo(keyCache![b.FullName]),
             _ => (a, b) => a.Score.CompareTo(b.Score)
         };
         var sorted = new List<RepoInfo>(list);
@@ -2416,6 +2521,24 @@ public class MainForm : Form
 
     private void RefreshGrid()
     {
+        // 节流：120ms 内的连续刷新合并成一次。跳过的这次由延迟任务兜底补刷，
+        // 保证最后一次操作后表格一定是最新的。
+        if ((DateTime.UtcNow - _lastRefresh).TotalMilliseconds < 120)
+        {
+            if (!_refreshQueued)
+            {
+                _refreshQueued = true;
+                _ = Task.Delay(120).ContinueWith(_ =>
+                {
+                    _refreshQueued = false;
+                    if (IsHandleCreated && !IsDisposed)
+                        BeginInvoke(new Action(RefreshGrid));
+                }, TaskScheduler.Default);
+            }
+            return;
+        }
+        _lastRefresh = DateTime.UtcNow;
+
         foreach (DataGridViewColumn col in _dgv.Columns)
         {
             col.HeaderText = col.Name switch
@@ -2423,7 +2546,8 @@ public class MainForm : Form
                 "Repo" => "仓库", "Stars" => "Star",
                 "LastPush" => "最后更新", "Status" => "状态", "Commits" => "7天提交",
                 "Age" => "库龄", "Processing" => "方式", "Score" => "活跃度",
-                "Nodes" => "节点", "Links" => "链接", _ => col.Name
+                "Nodes" => "节点", "Links" => "链接",
+                "Usable" => "可用分", "AvgSpeed" => "均速", _ => col.Name
             };
             if (col.Name == _sortField)
                 col.HeaderText += _sortDesc ? " ▼" : " ▲";
@@ -2440,11 +2564,40 @@ public class MainForm : Form
             _dgv.Rows.Clear();
             foreach (var r in _filteredRepos)
             {
-                _dgv.Rows.Add(
-                    r.FullName, r.Stars.ToString(), RelativeTime(r.LastPush),
+                var st = SpeedTestStore.Get(r.FullName);
+                var rowIdx = _dgv.Rows.Add(
+                    r.FullName, r.Stars.ToString(), GitHubAnalyzer.RelativeTime(r.LastPush),
                     r.StatusText, r.CommitsLast7Days.ToString(), r.AgeDays.ToString(),
-                    r.ProcessingType, r.Score.ToString(), r.TotalNodes.ToString(), r.Links.Count.ToString()
+                    r.ProcessingType, r.Score.ToString(), r.TotalNodes.ToString(), r.Links.Count.ToString(),
+                    st == null || st.Demoted ? "—" : st.Score.ToString(),
+                    st == null || st.Demoted ? "—" : st.SpeedText
                 );
+
+                if (st != null)
+                {
+                    var row = _dgv.Rows[rowIdx];
+                    var usableCell = row.Cells["Usable"]!;
+                    // 降权的仓库连可用分一起沉底，视觉上不再伪装成有测速数据
+                    if (st.Demoted)
+                    {
+                        usableCell.Style.ForeColor = Theme.InkLow;
+                        usableCell.Style.SelectionForeColor = Theme.InkLow;
+                        usableCell.ToolTipText = "连续多轮零通过，已降权。右键可解除。";
+                    }
+                    else if (st.Score >= 70)
+                    {
+                        usableCell.Style.ForeColor = Theme.Live;
+                        usableCell.ToolTipText =
+                            $"{st.TestedText}\n通过 {st.PassNodes}/{st.TotalNodes} · 存活 {st.AliveNodes}\n均速 {st.SpeedText} · 最快 {st.BestSpeedKbps / 1024.0:F1} MB/s";
+                    }
+                    else if (st.Score > 0)
+                    {
+                        usableCell.Style.ForeColor = Theme.Ochre;
+                        usableCell.ToolTipText =
+                            $"{st.TestedText}\n通过 {st.PassNodes}/{st.TotalNodes} · 存活 {st.AliveNodes}\n均速 {st.SpeedText}";
+                    }
+                    row.Cells["AvgSpeed"]!.ToolTipText = st.SpeedText;
+                }
             }
         }
         finally

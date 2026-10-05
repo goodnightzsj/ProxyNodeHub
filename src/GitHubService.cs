@@ -31,6 +31,12 @@ public class GitHubService
     private const string RawBase = "https://raw.githubusercontent.com";
     private const string RawBaseLen = "https://raw.githubusercontent.com/";
 
+    /// <summary>
+    /// 统一 UA。历史上有两处硬编码 "4.9"/"4.5" 各写各的，导致不一致；
+    /// 收口到这里，与 csproj 的版本号一致。
+    /// </summary>
+    private const string UserAgent = "ProxyNodeHub/0.0.1";
+
     public bool HasToken => !string.IsNullOrEmpty(_token);
 
     // 当前选中的代理 (null = 直连)
@@ -62,7 +68,7 @@ public class GitHubService
         _httpRaw = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         foreach (var h in new[] { _httpApi, _httpRaw })
         {
-            h.DefaultRequestHeaders.Add("User-Agent", "ProxyNodeHub/4.9");
+            h.DefaultRequestHeaders.Add("User-Agent", UserAgent);
             h.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
         }
         if (!string.IsNullOrEmpty(token))
@@ -134,9 +140,9 @@ public class GitHubService
     }
 
     // ── REST: 获取 README.md 内容 ──
-    public async Task<string?> GetReadmeAsync(string fullName, CancellationToken ct = default)
+    public async Task<string?> GetReadmeAsync(string fullName, string branch = "main", CancellationToken ct = default)
     {
-        return await GetRawFileAsync(fullName, "README.md", ct);
+        return await GetRawFileAsync(fullName, "README.md", branch, ct);
     }
 
     // ── 代理测速 ──
@@ -146,7 +152,7 @@ public class GitHubService
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            http.DefaultRequestHeaders.Add("User-Agent", "ProxyNodeHub/4.5");
+            http.DefaultRequestHeaders.Add("User-Agent", UserAgent);
 
             string testUrl;
             if (proxy.IsDefault)
@@ -266,11 +272,18 @@ public class GitHubService
         catch { return null; }
     }
 
-    public async Task<string?> GetRawFileAsync(string fullName, string path, CancellationToken ct = default)
+    public async Task<string?> GetRawFileAsync(string fullName, string path, string branch = "main", CancellationToken ct = default)
     {
-        foreach (var branch in new[] { "main", "master" })
+        // 真实分支优先。仓库默认分支是 master 时，先前实现会先浪费一次
+        // main 的 404 再回退；且调用方拿到的 URL 仍写死 main，得到 404 死链。
+        var candidates = new List<string>();
+        if (!string.IsNullOrEmpty(branch)) candidates.Add(branch);
+        foreach (var b in new[] { "main", "master" })
+            if (!candidates.Contains(b)) candidates.Add(b);
+
+        foreach (var b in candidates)
         {
-            var content = await GetUrlAsync($"{RawBase}/{fullName}/{branch}/{path}", ct);
+            var content = await GetUrlAsync($"{RawBase}/{fullName}/{b}/{path}", ct);
             if (!string.IsNullOrEmpty(content)) return content;
             if (ct.IsCancellationRequested) return null;
         }

@@ -31,6 +31,11 @@ public static class Theme
     public static readonly Color Live = Color.FromArgb(78, 125, 70);
     public static readonly Color Ochre = Color.FromArgb(184, 134, 45);
 
+    /// <summary>日志文字绿（终端感，与 PaperDeep 底搭配）。</summary>
+    public static readonly Color LogGreen = Color.FromArgb(92, 108, 74);
+    /// <summary>仓库描述灰（比 InkMid 稍深，用于次要正文）。</summary>
+    public static readonly Color DescGray = Color.FromArgb(98, 92, 82);
+
     // ── 网格 ──
     public static readonly Color GridRow = Color.FromArgb(251, 249, 244);
     public static readonly Color GridRowAlt = Color.FromArgb(244, 241, 234);
