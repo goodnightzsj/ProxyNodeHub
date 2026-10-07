@@ -2,17 +2,13 @@
 
 # ProxyNodeHub
 
-### GitHub 免费节点仓库监控与聚合工具 · Windows 客户端 / Docker Web
+### GitHub 免费节点仓库监控与聚合工具
 
 [English](README.en.md) | **中文**
 
 <p align="center"><a href="https://www.right.com.cn" alt="恩山论坛"><img src="https://custom-icon-badges.demolab.com/badge/right-.com.cn-blue?logo=right" /></a>　<a href="https://www.koolcenter.com/" alt="酷友社"><img src="https://img.shields.io/badge/koolcenter-.com-ff4d23?logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0ibG9nbyIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB2aWV3Qm94PSIwIDAgNTAwLjQ3IDQ5OS41MyI%2BCiAgPGRlZnM%2BCiAgICA8c3R5bGU%2BCiAgICAgIC5jbHMtMSB7IGZpbGw6ICNmZTUxMjg7IH0KICAgICAgLmNscy0yIHsgZmlsbDogI2ZmZjsgfQogICAgICAuY2xzLTMgeyBmaWxsOiAjZmVkNTQ0OyB9CiAgICAgIC5jbHMtNCB7IGZpbGw6ICM1ZmYwZmU7IH0KICAgICAgLmNscy01IHsgZmlsbDogIzY0NWRmZTsgfQogICAgPC9zdHlsZT4KICA8L2RlZnM%2BCiAgPGc%2BCiAgICA8cGF0aCBjbGFzcz0iY2xzLTIiIGQ9Ik0yNTAuMjMsNDkyLjAzYy02NC43NSwwLTEyNS42NC0yNS4xNC0xNzEuNDctNzAuNzlDMzIuOTIsMzc1LjU4LDcuNjIsMzE0Ljg0LDcuNSwyNTAuMjFjLS4xMi02NC43MSwyNS4wMi0xMjUuNTksNzAuNzgtMTcxLjQzQzEyNC4wNCwzMi45MywxODQuOTUsNy42MiwyNDkuNzksNy41aC40NmM2NC43NSwwLDEyNS42NCwyNS4xNCwxNzEuNDcsNzAuNzksNDUuODMsNDUuNjUsNzEuMTMsMTA2LjM5LDcxLjI1LDE3MS4wMi4xMiw2NC43MS0yNS4wMiwxMjUuNTktNzAuNzgsMTcxLjQzLTQ1Ljc2LDQ1Ljg0LTEwNi42OCw3MS4xNi0xNzEuNTIsNzEuMjhoLS40NloiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTI1MC4yNiwxNWMzMS43MiwwLDYyLjQ4LDYuMTksOTEuNDQsMTguNCwyNy45OCwxMS44LDUzLjEyLDI4LjY5LDc0LjcyLDUwLjIxLDIxLjYsMjEuNTIsMzguNTcsNDYuNTgsNTAuNDQsNzQuNDgsMTIuMjgsMjguODgsMTguNTQsNTkuNTgsMTguNiw5MS4yNC4wNiwzMS43LTYuMSw2Mi40NS0xOC4zMSw5MS40LTExLjc5LDI3Ljk3LTI4LjcxLDUzLjExLTUwLjI4LDc0LjcyLTIxLjU3LDIxLjYxLTQ2LjcsMzguNTgtNzQuNjksNTAuNDYtMjguOTcsMTIuMjktNTkuNzcsMTguNTYtOTEuNTQsMTguNjFoLS40NGMtMzEuNzIsMC02Mi40OS02LjE5LTkxLjQ1LTE4LjQtMjcuOTgtMTEuOC01My4xMy0yOC42OS03NC43My01MC4yMS0yMS42LTIxLjUyLTM4LjU3LTQ2LjU4LTUwLjQ0LTc0LjQ4LTEyLjI5LTI4Ljg4LTE4LjU0LTU5LjU4LTE4LjYtOTEuMjQtLjA2LTMxLjcsNi4xLTYyLjQ1LDE4LjMxLTkxLjQsMTEuNzktMjcuOTcsMjguNzEtNTMuMTEsNTAuMjgtNzQuNzIsMjEuNTctMjEuNjEsNDYuNy0zOC41OCw3NC42OS01MC40NiwyOC45Ny0xMi4yOSw1OS43Ny0xOC41Niw5MS41NC0xOC42MWguNDVzMCwwLDAsMGgwWk0yNTAuMjUsMGMtLjE1LDAtLjMyLDAtLjQ3LDBDMTExLjU4LjI1LS4yNSwxMTIuMjgsMCwyNTAuMjJjLjI1LDEzNy43OSwxMTIuMjMsMjQ5LjMsMjUwLjIyLDI0OS4zLjE1LDAsLjMyLDAsLjQ3LDAsMTM4LjItLjI1LDI1MC4wMy0xMTIuMjgsMjQ5Ljc4LTI1MC4yMkM1MDAuMjIsMTExLjUxLDM4OC4yNCwwLDI1MC4yNSwwaDBaIi8%2BCiAgPC9nPgogIDxwYXRoIGlkPSJoIiBjbGFzcz0iY2xzLTMiIGQ9Ik0xMzEuOTQsNDMxLjk1Yy02MS44Ni0zOS4wNy05OC45LTEwNy44NC05OS41My0xODAuMTYtLjY0LTczLjUzLDM1LjkyLTE0My40Niw5OS42OS0xODQuNjVsLS4xNSwzNjQuODFaIi8%2BCiAgPHBhdGggaWQ9ImxsIiBjbGFzcz0iY2xzLTUiIGQ9Ik00MzIuNDYsMzcwLjE4bC0xMTUuODMtMTE0LjE3LDExOS4zOC0xMTkuMjVjNDMuNyw3MC4zNCw0NC44MywxNTYuNjUtMy41NSwyMzMuNDJaIi8%2BCiAgPHBhdGggaWQ9ImwiIGNsYXNzPSJjbHMtNCIgZD0iTTM4NSw0MjEuMjhjLTUyLjc0LDQwLjY0LTExOC45Myw1NC45My0xODMuMyw0MC41bC0uMDYtMTcyLjIzLDUxLjY0LjI3LDEzMS43MiwxMzEuNDdaIi8%2BCiAgPHBhdGggaWQ9ImgtMiIgZGF0YS1uYW1lPSJoIiBjbGFzcz0iY2xzLTEiIGQ9Ik0yNTUuMiwyMTkuNzZsLTUzLjUyLjgtLjAzLTE4Mi44N2M2Ni43MS0xNC43OCwxMzUuNTYuODUsMTg5Ljc4LDQ1Ljg1bC0xMzYuMjQsMTM2LjIyWiIvPgo8L3N2Zz4%3D" /></a>　<a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a></p>
 
-![Docker Web 发现仓库界面，全部为 mock 演示数据](images/web-discovery-mock.png)
-
-Docker Web · 真实页面、合成数据；不代表真实订阅或节点可用性。
-
-[Docker Web 介绍](#docker-web-版本) · [Docker 部署](#docker-web-部署) · [Windows 客户端](#快速开始) · [双端能力边界](docs/web-parity-review.md)
+![软件主界面](images/main.png)
 
 </div>
 
@@ -27,47 +23,6 @@ Docker Web · 真实页面、合成数据；不代表真实订阅或节点可用
 ProxyNodeHub 用于发现 GitHub 上活跃的免费节点仓库：分析活跃度、去重分散的节点、直接给出可用的订阅链接。点一次「搜索并分析」，剩下的梳理工作全部由它完成。
 
 不必再逐个仓库翻找、比对、手动拼接订阅。它会挑出更新最勤、维护最稳的仓库，合并去重后一次导出；也能翻出那些藏在角落、不易察觉的冷门仓库——在免费节点这个领域，冷门往往意味着负载低、活得久，那才是真正好用的宝藏节点。
-
-## Docker Web 版本
-
-本 fork 在保留原 Windows 客户端的基础上，提供可在服务器、NAS 或软路由长期运行的 Docker Web 工作台。它是独立的 ASP.NET Core 服务，不是远程桌面：浏览器负责交互，容器负责发现、调度和持久化，关闭网页不影响后台任务。
-
-| 版本 | 适用场景 | 实现与运行方式 |
-|---|---|---|
-| Windows 客户端 | 在本机搜索、导出和管理本地测速内核 | `src/`，WinForms / .NET 8 |
-| Docker Web | 内网多台设备访问同一工作台，后台定时发现和集中保存结果 | `web/`，ASP.NET Core / .NET 10；当前 CI 镜像为 `linux/amd64` |
-| 共享核心 | GitHub 搜索、仓库评分、订阅探测、解析和学习 | `core/`，两端复用，不另维护一套发现逻辑 |
-
-Web 提供六个入口：发现仓库、我的收藏、订阅检测、运行记录、学习记录和服务设置。支持筛选排序、批量收藏/重检、按范围导出、在线配置 GitHub Token 与检测器连接，以及持久化发现计划。下拉框、复选框和确认框采用与暖纸底、墨色文字相配的自设计样式，同时保留语义 HTML 和键盘操作。
-
-subs-check 是**可选的独立检测服务**，不打包在本镜像内。不接入它仍可发现、收藏和导出来源；接入后可在 Web 查看检测状态、速度与媒体结果，调整白名单参数、读取日志和下载检测产物。`/subscriptions.txt` 是交给检测器的来源 URL 清单，**不是测速后的节点订阅**。
-
-Web 与客户端并非全部功能相同：本机内核安装/升级、完整检测 YAML 编辑、按轮历史回灌等没有原样迁入 Web。已覆盖能力与差异见 [完整复核](docs/web-parity-review.md)，不把跳转外部管理台算作 Web 已实现。
-
-### 界面预览（mock 数据）
-
-页首为发现列表。以下截图直接使用本项目当前前端，通过隔离浏览器拦截 API 填入虚构仓库、`example.com` / `example.test` 地址与模拟检测结果；没有连接生产 API，也没有真实 Token、密码、私密订阅或测速数据。图中的本机清单地址仅用于截图，部署时请使用检测器可访问的宿主机地址。
-
-<details>
-<summary>服务设置：发现计划、GitHub Token 与检测器连接</summary>
-
-![Docker Web 服务设置，mock 配置且密钥输入框为空](images/web-settings-mock.png)
-
-</details>
-
-<details>
-<summary>订阅检测：独立 subs-check 的模拟状态与结果</summary>
-
-![Docker Web 订阅检测，节点、速度和媒体标签均为 mock 数据](images/web-checker-mock.png)
-
-</details>
-
-<details>
-<summary>Windows 客户端原版界面（保留上游截图）</summary>
-
-![Windows 客户端原版主界面](images/main.png)
-
-</details>
 
 ## 功能特性
 
@@ -88,13 +43,10 @@ Web 与客户端并非全部功能相同：本机内核安装/升级、完整检
 
 ## 运行环境
 
-- **Docker Web** — 可运行 `linux/amd64` 容器的 Linux 主机与现代浏览器；镜像内置 .NET 10，无需在宿主安装运行时。当前没有发布 ARM64 镜像。
 - **自包含版** — Windows 10 及以上（x64），无需安装任何运行时。
 - **框架依赖版** — Windows 10 及以上（x64），并需安装 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)。
 
 ## 快速开始
-
-Docker Web 请直接使用下方 [Docker 部署](#docker-web-部署)。以下步骤适用于 Windows 客户端：
 
 1. 从 [Releases](../../releases) 获取构建包——无任何前置依赖请选 `ProxyNodeHub_v0.0.1_self-contained.zip`。
 2. 解压到任意目录，运行 `ProxyNodeHub.exe`。
@@ -103,6 +55,46 @@ Docker Web 请直接使用下方 [Docker 部署](#docker-web-部署)。以下步
 GitHub Token 是可选项。桌面端当前将其明文保存在 EXE 同目录的 `settings.json`，并非 Windows 凭据管理器加密存储；请勿提交或分享该文件。搜索 API 有独立限额，以 GitHub 实际响应为准。
 
 ## Docker Web 部署
+
+### Web 版本介绍
+
+本 fork 在保留原 Windows 客户端的基础上，提供可在服务器、NAS 或软路由长期运行的 Docker Web 工作台。它是独立的 ASP.NET Core 服务，不是远程桌面：浏览器负责交互，容器负责发现、调度和持久化，关闭网页不影响后台任务。
+
+| 版本 | 适用场景 | 实现与运行方式 |
+|---|---|---|
+| Windows 客户端 | 在本机搜索、导出和管理本地测速内核 | `src/`，WinForms / .NET 8 |
+| Docker Web | 内网多台设备访问同一工作台，后台定时发现和集中保存结果 | `web/`，ASP.NET Core / .NET 10；当前 CI 镜像为 `linux/amd64` |
+| 共享核心 | GitHub 搜索、仓库评分、订阅探测、解析和学习 | `core/`，两端复用，不另维护一套发现逻辑 |
+
+Web 提供六个入口：发现仓库、我的收藏、订阅检测、运行记录、学习记录和服务设置。支持筛选排序、批量收藏/重检、按范围导出、在线配置 GitHub Token 与检测器连接，以及持久化发现计划。下拉框、复选框和确认框采用与暖纸底、墨色文字相配的自设计样式，同时保留语义 HTML 和键盘操作。
+
+subs-check 是**可选的独立检测服务**，不打包在本镜像内。不接入它仍可发现、收藏和导出来源；接入后可在 Web 查看检测状态、速度与媒体结果，调整白名单参数、读取日志和下载检测产物。`/subscriptions.txt` 是交给检测器的来源 URL 清单，**不是测速后的节点订阅**。
+
+Web 与客户端并非全部功能相同：本机内核安装/升级、完整检测 YAML 编辑、按轮历史回灌等没有原样迁入 Web。已覆盖能力与差异见 [完整复核](docs/web-parity-review.md)，不把跳转外部管理台算作 Web 已实现。
+
+当前镜像支持 `linux/amd64`，内置 .NET 10 运行时；宿主无需安装 .NET，尚未发布 ARM64 镜像。
+
+### Web 界面预览（mock 数据）
+
+以下截图直接使用本项目当前前端，通过隔离浏览器拦截 API 填入虚构仓库、`example.com` / `example.test` 地址与模拟检测结果；没有连接生产 API，也没有真实 Token、密码、私密订阅或测速数据。图中的本机清单地址仅用于截图，部署时请使用检测器可访问的宿主机地址。
+
+![Docker Web 发现仓库界面，全部为 mock 演示数据](images/web-discovery-mock.png)
+
+<details>
+<summary>服务设置：发现计划、GitHub Token 与检测器连接</summary>
+
+![Docker Web 服务设置，mock 配置且密钥输入框为空](images/web-settings-mock.png)
+
+</details>
+
+<details>
+<summary>订阅检测：独立 subs-check 的模拟状态与结果</summary>
+
+![Docker Web 订阅检测，节点、速度和媒体标签均为 mock 数据](images/web-checker-mock.png)
+
+</details>
+
+### 拉取镜像与启动
 
 使用 [Docker Hub 镜像](https://hub.docker.com/r/helloworldz1024/proxynodehub)，无需在服务器克隆源码或安装 .NET。先确认目标提交的 [Actions](https://github.com/goodnightzsj/ProxyNodeHub/actions/workflows/build.yml) 发布成功，再拉取镜像：
 
