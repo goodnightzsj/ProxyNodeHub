@@ -25,7 +25,8 @@ public static class CheckerChecks
 
     public static async Task RunAsync()
     {
-        const string original = """
+        // Keep this LF fixture independent of checkout endings; explicit CRLF coverage is below.
+        var original = """
             # retained heading
             concurrent: 20 # retained comment
             api-key: "synthetic-config-secret"
@@ -40,7 +41,7 @@ public static class CheckerChecks
             sub-urls:
               - "https://example.test/private?token=synthetic-source-secret"
             sub-urls-remote: ["https://example.test/list"]
-            """;
+            """.Replace("\r\n", "\n", StringComparison.Ordinal);
         var projected = JsonSerializer.Serialize(new CheckerConfig(original).Project("test"), Json);
         foreach (var secret in new[] { "synthetic-config-secret", "synthetic-storage-secret", "synthetic-url-secret", "synthetic-source-secret" })
             Check(!projected.Contains(secret), "Configuration projections never expose private values");
