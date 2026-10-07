@@ -2,11 +2,15 @@
 
 # ProxyNodeHub
 
-### GitHub free-node repository monitor & aggregator
+### GitHub free-node repository monitor & aggregator · Windows / Docker Web
 
 **English** | [中文](README.md)
 
-![ProxyNodeHub main interface](images/main.png)
+![Docker Web discovery workspace with synthetic mock data](images/web-discovery-mock.png)
+
+Docker Web · Real UI, synthetic data; not evidence of working subscriptions or nodes.
+
+[Docker Web edition](#docker-web-edition) · [Docker deployment](#docker-web) · [Windows client](#getting-started) · [Capability boundaries](docs/web-parity-review.md)
 
 </div>
 
@@ -21,6 +25,47 @@
 ProxyNodeHub finds active free-node repositories on GitHub: it profiles their activity, de-duplicates the nodes they publish, and hands you a ready-to-use subscription link. One click on **Search & analyse**, and the rest of the triage is done for you.
 
 No more opening repository after repository, comparing by hand, stitching a subscription together yourself. ProxyNodeHub surfaces the repositories that are maintained hardest and updated most often, then merges and de-duplicates their nodes into a single export. It also digs out the quiet, easy-to-miss repositories — in this domain, low traffic usually means low load and a longer-lived node. The overlooked repository is often the good one.
+
+## Docker Web edition
+
+This fork retains the Windows client and adds a Docker Web workspace for always-on servers, NAS devices and compatible routers. It is a separate ASP.NET Core service, not a remote desktop: the browser handles interaction, while discovery, scheduling and persistence run in the container even after the browser closes.
+
+| Edition | Intended use | Implementation |
+|---|---|---|
+| Windows client | Local discovery, export and local checker-kernel management | `src/`, WinForms / .NET 8 |
+| Docker Web | Shared LAN workspace, scheduled discovery and centralized results | `web/`, ASP.NET Core / .NET 10; CI currently publishes `linux/amd64` |
+| Shared core | GitHub search, scoring, subscription discovery, parsing and learning | `core/`, reused by both hosts |
+
+Six pages cover discovery, favorites, subscription checking, run history, learned paths and service settings. Web supports filtering/sorting, batch favorites/rechecks, scoped exports, online GitHub Token and checker configuration, and persistent scheduling. Custom-styled dropdowns, checkboxes and confirmation dialogs match the warm-paper palette while retaining semantic HTML and keyboard operation.
+
+subs-check is an **optional, separate service**, not bundled into this image. Discovery, favorites and source exports work without it. Connecting it adds checker status, speed/media results, allowlisted settings, logs and artifact downloads. `/subscriptions.txt` lists source URLs for the checker; it is **not a subscription of tested nodes**.
+
+Web is not fully equivalent to the desktop client: local kernel installation/upgrades, full checker YAML editing and per-run historical reinjection are not replicated. See the [full capability review](docs/web-parity-review.md); opening another admin UI does not count as an integrated Web feature.
+
+### Screenshots (mock data)
+
+The discovery page is shown above. These are screenshots of the current frontend, with API responses intercepted in an isolated browser. Repositories, `example.com` / `example.test` addresses, nodes, speeds and media results are fictional. No production API, real token, password or private subscription was used. The loopback feed URL in the preview is for screenshots only; use a host address reachable by the checker when deploying.
+
+<details>
+<summary>Service settings: discovery schedule, GitHub Token and checker connection</summary>
+
+![Docker Web settings with mock configuration and empty secret fields](images/web-settings-mock.png)
+
+</details>
+
+<details>
+<summary>Subscription checking: simulated status and results from a separate subs-check service</summary>
+
+![Docker Web checker with synthetic nodes, speeds and media labels](images/web-checker-mock.png)
+
+</details>
+
+<details>
+<summary>Original Windows client (upstream screenshot retained)</summary>
+
+![Original Windows client interface](images/main.png)
+
+</details>
 
 ## Features
 
@@ -41,10 +86,13 @@ The table describes the Windows client. Docker Web shares the discovery core and
 
 ## Requirements
 
+- **Docker Web** — A Linux host capable of running `linux/amd64` containers and a modern browser. The image includes .NET 10; no host runtime is required. ARM64 images are not currently published.
 - **Self-contained build** — Windows 10 or later (x64). Nothing else to install.
 - **Framework-dependent build** — Windows 10 or later (x64) plus [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 
 ## Getting started
+
+For Docker Web, use the [deployment instructions](#docker-web) below. These steps are for the Windows client:
 
 1. Grab a build from [Releases](../../releases) — `ProxyNodeHub_v0.0.1_self-contained.zip` if you want zero prerequisites.
 2. Unzip anywhere and run `ProxyNodeHub.exe`.
@@ -54,7 +102,26 @@ A GitHub token is optional. The desktop currently stores it as plaintext in `set
 
 ## Docker Web
 
-Build the root Dockerfile with `docker build -t proxynodehub:local .`. On the server, create `/mnt/usb1-1/proxynodehub/data` owned by UID/GID `1654:1654`; keep it outside `/script`. Export a strong `ADMIN_PASSWORD` (12–1024 characters) and optionally `GITHUB_TOKEN` in your shell, then run:
+Use the [Docker Hub image](https://hub.docker.com/r/helloworldz1024/proxynodehub); the server does not need a source checkout or .NET installation. Confirm the target commit has a successful [Actions publication](https://github.com/goodnightzsj/ProxyNodeHub/actions/workflows/build.yml), then pull:
+
+```sh
+docker pull helloworldz1024/proxynodehub:latest
+```
+
+`latest` means the most recently pushed image, not necessarily the current GitHub commit. Prefer `sha-<full-commit>` for pinned production upgrades. To build locally instead, run `docker build -t proxynodehub:local .` at the repository root and substitute that tag below. The root `Dockerfile` builds the service; `tests/Dockerfile` does not.
+
+The example uses `192.168.31.122` and `/mnt/usb1-1/proxynodehub`; adapt addresses and paths for your host. Keep persistent data outside `/script`. Prepare the directories and password file once, without overwriting an existing password:
+
+```sh
+mkdir -p /mnt/usb1-1/proxynodehub/data /mnt/usb1-1/proxynodehub/secrets
+test -e /mnt/usb1-1/proxynodehub/secrets/admin-password || \
+  (umask 077; openssl rand -base64 -out /mnt/usb1-1/proxynodehub/secrets/admin-password 32)
+chown -R 1654:1654 /mnt/usb1-1/proxynodehub/data /mnt/usb1-1/proxynodehub/secrets
+chmod 750 /mnt/usb1-1/proxynodehub/data /mnt/usb1-1/proxynodehub/secrets
+chmod 600 /mnt/usb1-1/proxynodehub/secrets/admin-password
+```
+
+Start the container. If that name already exists, stop the old writer and preserve its data before recreating it:
 
 ```sh
 docker run -d \
@@ -65,16 +132,17 @@ docker run -d \
   --log-opt max-size=5m --log-opt max-file=2 \
   -p 192.168.31.122:8388:8080 \
   -p 172.17.0.1:8388:8080 \
-  -e ADMIN_PASSWORD="${ADMIN_PASSWORD:?Export a strong administrator password first}" \
+  -e ADMIN_PASSWORD_FILE=/run/secrets/admin-password \
   -e GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
   -e REFRESH_HOURS=6 -e REPO_COUNT=10 -e INACTIVE_DAYS=7 -e AUTO_REFRESH=true \
   -v /mnt/usb1-1/proxynodehub/data:/data \
-  proxynodehub:local
+  -v /mnt/usb1-1/proxynodehub/secrets/admin-password:/run/secrets/admin-password:ro \
+  helloworldz1024/proxynodehub:latest
 ```
 
 Open `http://192.168.31.122:8388`. The second port binding preserves the existing checker's Docker-bridge feed address; adjust these addresses for other hosts. Do not expose this HTTP endpoint to the Internet; use a trusted HTTPS reverse proxy for untrusted networks. Cookie authentication, CSRF protection and login rate limiting protect management APIs. GitHub tokens are server-only and never included in browser state or sent to subscription sources.
 
-Alternatively, mount a password file read-only and set `ADMIN_PASSWORD_FILE=/run/secrets/admin-password` instead of `ADMIN_PASSWORD`; do not set both. The file must be readable by UID1654. The [Chinese deployment guide](README.md#docker-web-部署) includes the full secret-file preparation and run command used on the target server.
+Log in with the password stored in the server-side file; do not share it in chat or commit it. Alternatively, supply `ADMIN_PASSWORD` from the host environment (12–1024 characters) instead of `ADMIN_PASSWORD_FILE`; do not set both. The password file must be readable by UID1654.
 
 On a fresh volume discovery starts immediately. Subsequent runs begin six hours after the previous attempt finishes, including failed attempts; timing survives restarts. The UI can change the interval (1–24 hours), candidate count (1–100), active-date range (1–60 days), concurrency (1–10) and automatic scheduling. These environment variables initialize new data only; persisted UI settings take precedence thereafter. Runs are mutually exclusive, cancellable and capped at 15 minutes. Failures/empty results never replace the last valid snapshot; partially successful discovery is explicitly marked.
 
@@ -92,7 +160,14 @@ Before upgrading, record the current image digest and runtime settings. Preserve
 
 ### GitHub Actions
 
-The workflow tests Core/Web and the frontend, publishes a Windows artifact, builds a Linux amd64 image and performs HTTP/restart checks. Only that tested image is pushed to Docker Hub. Pull requests and manual builds on other branches never publish images. Enable Actions and configure the repository variable `DOCKERHUB_USERNAME=helloworldz1024` and secret `DOCKERHUB_TOKEN` with push access. Missing credentials fail publication explicitly. Never commit or share tokens in chat; the optional runtime GitHub token is unrelated.
+The workflow tests Core/Web and the frontend, publishes a Windows artifact, builds a Linux amd64 image and performs HTTP/restart checks. Only that tested image is pushed to Docker Hub. Pull requests and manual builds on other branches never publish images. Enable Actions and configure these under Settings → Secrets and variables → Actions:
+
+| Name | Location | Value |
+|---|---|---|
+| `DOCKERHUB_USERNAME` | **Variables → New repository variable** | `helloworldz1024` |
+| `DOCKERHUB_TOKEN` | **Secrets → New repository secret** | A Docker Hub token with push access to the target image repository |
+
+A `DOCKERHUB_TOKEN` entry in Variables alone does not work: the workflow reads `secrets.DOCKERHUB_TOKEN`. Missing credentials fail publication explicitly. Never commit or share tokens in chat; revoke and rotate exposed tokens. The optional runtime `GITHUB_TOKEN` is unrelated, and changing Actions configuration does not update existing container environment variables.
 
 Successful main/master builds publish `helloworldz1024/proxynodehub:latest` and `sha-<full-commit>`; `v*` tags publish version and SHA tags. OCI labels identify the source repository and revision. Wait for the matching Actions run, then deploy its SHA tag and verify the registry digest. The earlier `web-20261008-d6db08ef` image was built from uncommitted local source using the server Docker daemon and pushed directly, not by Actions.
 
@@ -176,6 +251,7 @@ tests/Dockerfile            # Core checks and Windows cross-build; NOT a service
 
 - C# / WinForms on .NET 8 (`net8.0-windows`, `win-x64`)
 - Windows 10 or later, x64
+- Docker Web: ASP.NET Core / .NET 10, non-root Alpine Linux image; custom HTML/CSS/JavaScript controls with no frontend build dependencies
 - Core uses YamlDotNet 18.1.0 to validate node YAML; desktop and Web share that dependency, and Web also uses it to preserve checker configuration
 
 ## Author
